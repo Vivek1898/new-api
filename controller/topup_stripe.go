@@ -248,6 +248,18 @@ func sessionAsyncPaymentFailed(ctx context.Context, event stripe.Event, callerIp
 	LockOrder(referenceId)
 	defer UnlockOrder(referenceId)
 
+	// Subscription orders go through the same checkout flow and must also be
+	// marked failed, otherwise the pending SubscriptionOrder is left stranded
+	// (#8226). Fall through to the top-up path only when this trade number is
+	// not a subscription order.
+	if err := model.FailSubscriptionOrder(referenceId, model.PaymentProviderStripe); err == nil {
+		logger.LogInfo(ctx, common.LogText("Stripe subscription order marked as failed trade_no=%s client_ip=%s", referenceId, callerIp))
+		return
+	} else if err != nil && !errors.Is(err, model.ErrSubscriptionOrderNotFound) {
+		logger.LogError(ctx, common.LogText("Stripe subscription order failure processing failed trade_no=%s client_ip=%s error=%q", referenceId, callerIp, err.Error()))
+		return
+	}
+
 	topUp := model.GetTopUpByTradeNo(referenceId)
 	if topUp == nil {
 		logger.LogWarn(ctx, common.LogText("Stripe async payment failed but local order not found trade_no=%s client_ip=%s", referenceId, callerIp))

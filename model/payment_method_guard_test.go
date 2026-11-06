@@ -174,6 +174,35 @@ func TestExpireSubscriptionOrder_RejectsMismatchedPaymentProvider(t *testing.T) 
 	assert.Equal(t, common.TopUpStatusPending, order.Status)
 }
 
+func TestFailSubscriptionOrder_MarksPendingOrderFailed(t *testing.T) {
+	truncateTables(t)
+
+	insertUserForPaymentGuardTest(t, 311, 0)
+	plan := insertSubscriptionPlanForPaymentGuardTest(t, 411)
+	insertSubscriptionOrderForPaymentGuardTest(t, "sub-fail-order", 311, plan.Id, PaymentProviderStripe)
+
+	require.NoError(t, FailSubscriptionOrder("sub-fail-order", PaymentProviderStripe))
+
+	order := GetSubscriptionOrderByTradeNo("sub-fail-order")
+	require.NotNil(t, order)
+	assert.Equal(t, common.TopUpStatusFailed, order.Status)
+}
+
+func TestFailSubscriptionOrder_RejectsMismatchedPaymentProvider(t *testing.T) {
+	truncateTables(t)
+
+	insertUserForPaymentGuardTest(t, 312, 0)
+	plan := insertSubscriptionPlanForPaymentGuardTest(t, 412)
+	insertSubscriptionOrderForPaymentGuardTest(t, "sub-fail-guard", 312, plan.Id, PaymentProviderStripe)
+
+	err := FailSubscriptionOrder("sub-fail-guard", PaymentProviderCreem)
+	require.ErrorIs(t, err, ErrPaymentMethodMismatch)
+
+	order := GetSubscriptionOrderByTradeNo("sub-fail-guard")
+	require.NotNil(t, order)
+	assert.Equal(t, common.TopUpStatusPending, order.Status)
+}
+
 func createEpayTestOrder(t *testing.T, userId int, tradeNo string, provider string, status string) TopUp {
 	t.Helper()
 	topUp := TopUp{
